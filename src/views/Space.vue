@@ -62,6 +62,8 @@ import utils from '@/utils.js'
 import cache from '@/cache.js'
 import consts from '@/consts.js'
 
+import { resolveIdPrefix, validateCommand } from '@/localBridgeProtocol.js'
+
 import sortBy from 'lodash-es/sortBy'
 import uniq from 'lodash-es/uniq'
 import debounce from 'lodash-es/debounce'
@@ -89,6 +91,109 @@ let unsubscribes
 let prevCursor, endCursor, endSpaceCursor, shouldCancel
 let processQueueIntervalTimer, hourlyTasks
 let statusRetryCount = 0
+
+const bridgeCard = (card) => ({
+  id: card.id,
+  name: card.name,
+  x: card.x,
+  y: card.y,
+  width: card.width,
+  height: card.height,
+  backgroundColor: card.backgroundColor,
+  isComment: card.isComment,
+  isRemoved: card.isRemoved
+})
+const bridgeBox = (box) => ({
+  id: box.id,
+  name: box.name,
+  x: box.x,
+  y: box.y,
+  width: box.resizeWidth,
+  height: box.resizeHeight,
+  color: box.color
+})
+const bridgeConnection = (connection) => ({
+  id: connection.id,
+  name: connection.name,
+  startItemId: connection.startItemId,
+  endItemId: connection.endItemId,
+  color: connection.color
+})
+const localBridgeSnapshot = () => {
+  const limit = 200
+  const cards = cardStore.getAllCards.map(bridgeCard)
+  const boxes = boxStore.getAllBoxes.map(bridgeBox)
+  const connections = connectionStore.getAllConnections.map(bridgeConnection)
+  return {
+    space: { id: spaceStore.id, name: spaceStore.name },
+    viewport: {
+      width: globalStore.viewportWidth,
+      height: globalStore.viewportHeight,
+      zoom: globalStore.spaceZoomPercent,
+      offset: globalStore.spaceZoomOffset
+    },
+    counts: { cards: cards.length, boxes: boxes.length, connections: connections.length },
+    cards: cards.slice(0, limit),
+    boxes: boxes.slice(0, limit),
+    connections: connections.slice(0, limit)
+  }
+}
+const createCardFromLocalBridge = async (params) => {
+  const position = utils.cursorPositionInSpace(null, {
+    x: window.scrollX + window.innerWidth / 2,
+    y: window.scrollY + window.innerHeight / 2
+  })
+  position.x = params.x ?? position.x
+  position.y = params.y ?? position.y
+  const card = { ...params, position }
+  await cardStore.createCard(card, true)
+  return cardStore.getCard(card.id)
+}
+const localBridgeItemByIdPrefix = (items, prefix) => {
+  const { item, error } = resolveIdPrefix(items, prefix)
+  if (error) throw new Error(error)
+  return item
+}
+const localBridgeCommand = async (command) => {
+  const error = validateCommand(command)
+  if (error) throw new Error(error)
+  if (command.action === 'snapshot') return localBridgeSnapshot()
+  if (command.action === 'card.create') {
+    const card = await createCardFromLocalBridge(command.params)
+    if (!card) throw new Error('Kinopio did not create the card')
+    return { card: bridgeCard(card) }
+  }
+  if (command.action === 'card.update' || command.action === 'card.move') {
+    const { id, ...update } = command.params
+    const card = localBridgeItemByIdPrefix(cardStore.getAllCards, id)
+    await cardStore.updateCard({ id: card.id, ...update })
+    return { card: bridgeCard(cardStore.getCard(card.id)) }
+  }
+  if (command.action === 'connection.create') {
+    let { startItemId, endItemId } = command.params
+    const items = cardStore.getAllCards.concat(boxStore.getAllBoxes, listStore.getAllLists)
+    startItemId = localBridgeItemByIdPrefix(items, startItemId).id
+    endItemId = localBridgeItemByIdPrefix(items, endItemId).id
+    const existing = connectionStore.getAllConnections.find(connection => {
+      return connection.startItemId === startItemId && connection.endItemId === endItemId
+    })
+    if (existing) throw new Error('Connection already exists')
+    await connectionStore.createConnection({ ...command.params, startItemId, endItemId })
+    const connection = connectionStore.getAllConnections.find(connection => {
+      return connection.startItemId === startItemId && connection.endItemId === endItemId
+    })
+    if (!connection) throw new Error('Kinopio did not create the connection')
+    return { connection: bridgeConnection(connection) }
+  }
+}
+const receiveLocalBridgeCommand = async (command) => {
+  try {
+    const result = await localBridgeCommand(command)
+    import.meta.hot?.send('kaoru:result', { id: command.id, ok: true, result })
+  } catch (error) {
+    import.meta.hot?.send('kaoru:result', { id: command?.id, ok: false, error: error.message })
+  }
+}
 
 // expose pinia stores to browser console for developers
 window.globalStore = useGlobalStore()
@@ -125,6 +230,8 @@ const init = async () => {
 }
 
 onMounted(async () => {
+  import.meta.hot?.on('kaoru:command', receiveLocalBridgeCommand)
+  import.meta.hot?.send('kaoru:ready')
   console.info('🐢 kinopio-client build mode', import.meta.env.MODE)
   console.info('🐸 kinopio-server URL', consts.apiHost())
   globalStore.spaceComponentIsMounted = true
@@ -227,6 +334,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('touchend', updateViewportSizes)
   window.removeEventListener('gesturecancel', updateViewportSizes)
   window.removeEventListener('resize', updateViewportSizes)
+  import.meta.hot?.off('kaoru:command', receiveLocalBridgeCommand)
   clearInterval(processQueueIntervalTimer)
   clearInterval(hourlyTasks)
   updateViewportObservers.cancel()
