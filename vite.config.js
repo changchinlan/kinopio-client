@@ -5,6 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 import Sitemap from 'vite-plugin-sitemap'
 import path from 'path'
 import fs from 'fs'
+import localBridge from './vite-local-bridge.js'
 
 const sitemapSpaces = [
   // example spaces, also linked from llms.txt
@@ -149,6 +150,7 @@ export default defineConfig(async ({ command, mode }) => {
       }
     },
     plugins: [
+      localBridge(),
       // .vue support
       vue({
         include: [/\.vue$/, /\.md$/],
