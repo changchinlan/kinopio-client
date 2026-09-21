@@ -1,0 +1,12 @@
+[Unit]
+Description=Kinopio local API
+
+[Service]
+Type=simple
+WorkingDirectory=/home/kyaru/kaoru/playground/kinopio-local-server
+ExecStart=/home/kyaru/kaoru/playground/kinopio-local-server/run-local-api
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
