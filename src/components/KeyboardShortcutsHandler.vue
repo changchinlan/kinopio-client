@@ -629,23 +629,11 @@ const clearAllSelectedCards = () => {
 }
 
 const canEditCardById = (cardId) => {
-  const isSpaceMember = userStore.getUserIsSpaceMember
-  const card = cardStore.getCard(cardId)
-  const cardIsCreatedByCurrentUser = userStore.getUserIsCardCreator(card)
-  const canEditSpace = userStore.getUserCanEditSpace
-  if (isSpaceMember) { return true }
-  if (canEditSpace && cardIsCreatedByCurrentUser) { return true }
-  return false
+  return userStore.getUserCanEditCard(cardStore.getCard(cardId))
 }
 
 const canEditConnectionById = (connectionId) => {
-  const isSpaceMember = userStore.getUserIsSpaceMember
-  const connection = connectionStore.getConnection(connectionId)
-  const connectionIsCreatedByCurrentUser = userStore.getItemIsCreatedByUser(connection)
-  const canEditSpace = userStore.getUserCanEditSpace
-  if (isSpaceMember) { return true }
-  if (canEditSpace && connectionIsCreatedByCurrentUser) { return true }
-  return false
+  return userStore.getUserCanEditConnection(connectionStore.getConnection(connectionId))
 }
 
 const remove = () => {
@@ -671,14 +659,12 @@ const remove = () => {
     }
   })
   lines.forEach(line => {
-    const canEditLines = userStore.getUserIsSpaceMember
-    if (canEditLines) {
+    if (userStore.getUserCanEditLine()) {
       lineStore.removeLine(line.id)
     }
   })
   lists.forEach(list => {
-    const canEditLists = userStore.getUserIsSpaceMember
-    if (canEditLists) {
+    if (userStore.getUserCanEditList()) {
       listStore.removeList(list.id)
     }
   })
@@ -1055,8 +1041,7 @@ const toggleLockCards = () => {
 // Create Boxes
 
 const containItemsInNewBox = async (cards) => {
-  const isSpaceMember = userStore.getUserIsSpaceMember
-  if (!isSpaceMember) { return }
+  if (!userStore.getUserCanEditList()) { return }
   const rect = utils.boundaryRectFromItems(cards)
   // box size
   const padding = consts.spaceBetweenCards

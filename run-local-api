@@ -1,0 +1,11 @@
+#!/usr/bin/env nix
+#! nix shell nixpkgs#nodejs_22 --command bash
+
+set -eu
+cd "$(dirname "$0")"
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/kinopio"
+export KINOPIO_LOCAL_PORT="${KINOPIO_LOCAL_PORT:-8081}"
+export KINOPIO_LOCAL_DB="${KINOPIO_LOCAL_DB:-$data_dir/spaces.sqlite}"
+export KINOPIO_LOCAL_ASSETS="${KINOPIO_LOCAL_ASSETS:-$data_dir/assets}"
+mkdir -p "$(dirname "$KINOPIO_LOCAL_DB")" "$KINOPIO_LOCAL_ASSETS"
+exec node local-server/server.js

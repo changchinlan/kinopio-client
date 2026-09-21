@@ -148,14 +148,14 @@ const updatePositionClamped = () => {
 
 // items
 
-const isSpaceMember = computed(() => userStore.getUserIsSpaceMember)
+const canEditAllCanvasItems = computed(() => userStore.getUserCanEditList() && userStore.getUserCanEditLine())
 const canEditAsNonMember = computed(() => {
   const spaceIsOpen = spaceStore.privacy === 'open'
   const isSpaceMember = userStore.getUserIsSpaceMember
   return spaceIsOpen && !isSpaceMember
 })
 const canEditAll = computed(() => {
-  if (isSpaceMember.value) {
+  if (canEditAllCanvasItems.value) {
     return {
       cards: true,
       connections: true,
@@ -168,8 +168,8 @@ const canEditAll = computed(() => {
   const cards = multipleCardsSelectedIds.value.length === numberOfSelectedItemsCreatedByCurrentUser.value.cards
   const connections = multipleConnectionsSelectedIds.value.length === numberOfSelectedItemsCreatedByCurrentUser.value.connections
   const boxes = multipleBoxesSelectedIds.value.length === numberOfSelectedItemsCreatedByCurrentUser.value.boxes
-  const lines = userStore.getUserIsSpaceMember
-  const lists = userStore.getUserIsSpaceMember
+  const lines = userStore.getUserCanEditLine()
+  const lists = userStore.getUserCanEditList()
   const all = cards && connections && boxes && lines && lists
   return { cards, connections, boxes, lines, lists, all }
 })
@@ -268,15 +268,7 @@ const cards = computed(() => {
   prevCards = cards
   return cards
 })
-const editableCards = computed(() => {
-  if (isSpaceMember.value) {
-    return cards.value
-  } else {
-    return cards.value.filter(card => {
-      return userStore.getUserIsCardCreator(card)
-    })
-  }
-})
+const editableCards = computed(() => cards.value.filter(card => userStore.getUserCanEditCard(card)))
 
 // connect
 
@@ -344,15 +336,7 @@ const connectionsIsSelected = computed(() => Boolean(multipleConnectionsSelected
 const connections = computed(() => {
   return multipleConnectionsSelectedIds.value.map(id => connectionStore.getConnection(id))
 })
-const editableConnections = computed(() => {
-  if (isSpaceMember.value) {
-    return connections.value
-  } else {
-    return connections.value.filter(connection => {
-      return userStore.getItemIsCreatedByUser(connection)
-    })
-  }
-})
+const editableConnections = computed(() => connections.value.filter(connection => userStore.getUserCanEditConnection(connection)))
 
 // boxes
 
@@ -366,15 +350,7 @@ const boxes = computed(() => {
   prevBoxes = boxes
   return boxes
 })
-const editableBoxes = computed(() => {
-  if (isSpaceMember.value) {
-    return boxes.value
-  } else {
-    return boxes.value.filter(box => {
-      userStore.getUserIsBoxCreator(box)
-    })
-  }
-})
+const editableBoxes = computed(() => boxes.value.filter(box => userStore.getUserCanEditBox(box)))
 
 // list
 
@@ -562,8 +538,10 @@ const remove = ({ shouldRemoveCardsOnly }) => {
   if (!shouldRemoveCardsOnly) {
     editableBoxes.value.forEach(box => boxStore.removeBox(box.id))
   }
-  if (isSpaceMember.value) {
+  if (userStore.getUserCanEditLine()) {
     lineStore.removeLines(multipleLinesSelectedIds.value)
+  }
+  if (userStore.getUserCanEditList()) {
     listStore.removeLists(multipleListsSelectedIds.value)
   }
   globalStore.closeAllDialogs()

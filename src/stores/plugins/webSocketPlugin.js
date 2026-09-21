@@ -30,6 +30,7 @@ import isEqual from 'lodash-es/isEqual'
 
 import utils from '@/utils.js'
 import consts from '@/consts.js'
+import { localServerEnabled } from '@/localServer.js'
 
 const debouncedStoreActions = new Map()
 
@@ -169,6 +170,7 @@ export default function webSocketPlugin () {
   // init
 
   const connectToWebsocket = (pinia) => {
+    if (localServerEnabled) return
     const globalStore = useGlobalStore(pinia)
     const spaceStore = useSpaceStore(pinia)
     const userStore = useUserStore(pinia)

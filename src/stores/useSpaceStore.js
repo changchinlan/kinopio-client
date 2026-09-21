@@ -19,6 +19,8 @@ import newSpace from '@/data/new.json'
 
 import utils from '@/utils.js'
 import cache from '@/cache.js'
+import { localApi, localServerEnabled } from '@/localServer.js'
+import { canApplyLocalSnapshot } from '@/localTransport.js'
 import consts from '@/consts.js'
 import postMessage from '@/postMessage.js'
 
@@ -32,6 +34,10 @@ import dayjs from 'dayjs'
 
 const idleClientTimers = []
 let isLoadingRemoteSpace, shouldLoadNewHelloSpace
+let localEvents
+let localReloadPending
+let localReconcileInFlight
+let localLoadTargetId
 const loadSpaceIdsError = []
 const setCookie = () => {
   const yearSeconds = 31536000
@@ -94,6 +100,7 @@ export const useSpaceStore = defineStore('space', {
       return cardsCreatedIsOverLimit && !this.getSpaceCreatorIsUpgraded
     },
     getSpaceIsRemote () {
+      if (localServerEnabled) return true
       const userStore = useUserStore()
       const isSpaceMember = userStore.getUserIsSpaceMember
       const isSignedIn = userStore.getUserIsSignedIn
@@ -326,8 +333,29 @@ export const useSpaceStore = defineStore('space', {
       globalStore.isLoadingSpace = true
       globalStore.isSpacePage = true
       const spaceUrl = globalStore.spaceUrlToLoad
-      const cachedSpaces = await cache.getAllSpaces()
       setCookie()
+      if (localServerEnabled) {
+        const apiStore = useApiStore()
+        await apiStore.initializeLocalQueue()
+        if (spaceUrl) {
+          await this.loadSpace({ id: utils.spaceIdFromUrl(spaceUrl) })
+        } else {
+          let spaces
+          try {
+            spaces = await apiStore.getLocalSpaces()
+          } catch (error) {
+            console.error('local server could not list spaces', error)
+            globalStore.updateNotifyConnectionError(true)
+            globalStore.isLoadingSpace = false
+            return
+          }
+          if (spaces.length) await this.loadSpace(spaces[0])
+          else await this.createSpace()
+        }
+        globalStore.triggerUpdateWindowHistory()
+        return
+      }
+      const cachedSpaces = await cache.getAllSpaces()
       // restore from url
       if (spaceUrl) {
         console.info('🚃 Restore space from url', spaceUrl)
@@ -488,7 +516,7 @@ export const useSpaceStore = defineStore('space', {
       console.info('🎑 local space', space)
       return space
     },
-    async restoreSpaceRemote (space) {
+    async restoreSpaceRemote (space, { replayLocalHistory = true, resetHistory = true } = {}) {
       const globalStore = useGlobalStore()
       const historyStore = useHistoryStore()
       const cardStore = useCardStore()
@@ -508,16 +536,102 @@ export const useSpaceStore = defineStore('space', {
       listStore.initializeRemoteLists(space.lists)
       globalStore.updatePageSizes()
       // init space
-      historyStore.redoLocalUpdates()
+      // The cloud load path reapplies uncommitted optimistic history. Local
+      // reloads only happen after its durable outbox drains, so replaying here
+      // would resurrect operations the server has already committed.
+      if (replayLocalHistory) historyStore.redoLocalUpdates()
       this.$state = space
-      historyStore.reset()
+      if (resetHistory) historyStore.reset()
       // clean up unused keys
       const itemKeys = ['cards', 'boxes', 'connections', 'lines', 'lists']
       itemKeys.forEach(key => {
         delete this[key]
       })
     },
+    async loadLocalSpace (space, { reconciliation = false } = {}) {
+      const globalStore = useGlobalStore()
+      const apiStore = useApiStore()
+      const targetId = space.id
+      localLoadTargetId = targetId
+      const generation = apiStore.localQueueGeneration()
+      const cachedSpace = !reconciliation && !apiStore.localQueueIsIdle() ? await cache.space(targetId) : null
+      const response = await fetch(localApi(`/spaces/${encodeURIComponent(targetId)}`))
+      if (localLoadTargetId !== targetId) return false
+      if (!response.ok) {
+        globalStore.updateNotifySpaceNotFound(true)
+        globalStore.isLoadingSpace = false
+        return false
+      }
+      const { space: remoteSpace } = await response.json()
+      const canApply = canApplyLocalSnapshot({
+        targetId,
+        activeTargetId: localLoadTargetId,
+        reconciliation,
+        startedGeneration: generation,
+        currentGeneration: apiStore.localQueueGeneration(),
+        queueIdle: apiStore.localQueueIsIdle()
+      })
+      if (!canApply) {
+        if (!reconciliation && cachedSpace?.id) this.restoreSpaceLocal(cachedSpace)
+        localReloadPending = true
+        globalStore.isLoadingSpace = false
+        this.connectLocalEvents()
+        return false
+      }
+      // Never let a fetch begun before an edit overwrite that optimistic edit.
+      await this.restoreSpaceRemote(remoteSpace, {
+        replayLocalHistory: false,
+        resetHistory: !reconciliation
+      })
+      this.saveSpaceToCache()
+      globalStore.triggerUpdateWindowTitle()
+      globalStore.isLoadingSpace = false
+      globalStore.triggerDrawingInitialize()
+      globalStore.updateTags()
+      this.connectLocalEvents()
+      return true
+    },
+    async reconcileLocalSpace () {
+      if (!localServerEnabled || !this.id) return
+      if (localReconcileInFlight) {
+        localReloadPending = true
+        return
+      }
+      localReconcileInFlight = true
+      let applied = false
+      try {
+        const targetId = localLoadTargetId || this.id
+        localReloadPending = false
+        applied = await this.loadLocalSpace({ id: targetId }, { reconciliation: true })
+        if (!applied) localReloadPending = true
+      } finally {
+        localReconcileInFlight = false
+        if (applied && localReloadPending) {
+          localReloadPending = false
+          queueMicrotask(() => this.reconcileLocalSpace())
+        }
+      }
+    },
+    connectLocalEvents () {
+      if (localEvents) return
+      localEvents = new EventSource(localApi('/events'))
+      localEvents.onmessage = event => {
+        const update = JSON.parse(event.data)
+        if (!update.spaceIds.includes(this.id)) return
+        localReloadPending = true
+        this.reconcileLocalSpace()
+      }
+      localEvents.onerror = () => { localReloadPending = true }
+      // A connection can have missed commits between the initial GET and its
+      // subscription. Always reconcile once after opening.
+      localEvents.onopen = () => {
+        localReloadPending = true
+        useApiStore().sendQueue()
+        this.reconcileLocalSpace()
+      }
+    },
     async loadSpace (space) {
+      if (localServerEnabled) return this.loadLocalSpace(space)
       const globalStore = useGlobalStore()
       const groupStore = useGroupStore()
       const cardStore = useCardStore()
@@ -678,16 +792,22 @@ export const useSpaceStore = defineStore('space', {
       const space = this.getSpaceAllState
       const user = userStore.getUserAllState
       console.info('✨ saveSpace', space, user)
-      cache.saveSpace(space)
       this.addUserToSpace(user)
       this.incrementCardsCreatedCountFromSpace(space)
+      if (localServerEnabled) {
+        localLoadTargetId = space.id
+        const savedSpace = await apiStore.createLocalSpace(space)
+        await cache.saveSpace(savedSpace)
+      } else {
+        cache.saveSpace(space)
+        await apiStore.addToQueue({
+          name: 'createSpace',
+          body: space
+        })
+      }
       globalStore.isLoadingSpace = false
       globalStore.triggerUpdateWindowHistory()
       globalStore.triggerDrawingInitialize()
-      await apiStore.addToQueue({
-        name: 'createSpace',
-        body: space
-      })
     },
     saveSpaceToCache () {
       const userStore = useUserStore()

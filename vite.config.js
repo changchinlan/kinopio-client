@@ -108,6 +108,7 @@ const createSPAPlugin = () => {
 }
 
 export default defineConfig(async ({ command, mode }) => {
+  const localServer = process.env.VITE_LOCAL_SERVER === 'true'
   const helpRoutes = ['/help'].concat(helpPages().map(page => `/help/${page.slug}`))
   // sitemap routes
   const routes = [
@@ -150,7 +151,7 @@ export default defineConfig(async ({ command, mode }) => {
       }
     },
     plugins: [
-      localBridge(),
+      !localServer && localBridge(),
       // .vue support
       vue({
         include: [/\.vue$/, /\.md$/],
@@ -206,7 +207,7 @@ export default defineConfig(async ({ command, mode }) => {
         }
       }),
       // sitemap
-      Sitemap({
+      command === 'build' && Sitemap({
         hostname: 'https://kinopio.club',
         dynamicRoutes,
         readable: true,
@@ -217,8 +218,12 @@ export default defineConfig(async ({ command, mode }) => {
       host: '0.0.0.0' // accept connections from https://kinopio.local
     },
     server: {
-      port: 8080,
+      port: localServer ? 8082 : 8080,
+      strictPort: localServer,
       host: '0.0.0.0',
+      proxy: localServer
+        ? { '/local-api': { target: 'http://127.0.0.1:8081', changeOrigin: true, rewrite: path => path.replace(/^\/local-api/, '') } }
+        : undefined,
       fs: {
         // Allow serving files from one level up to the project root
         allow: ['..']

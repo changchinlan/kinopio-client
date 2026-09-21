@@ -18,6 +18,7 @@ import { useStickyCard } from '@/composables/useStickyCard.js'
 import { useStoreAction } from '@/composables/useStoreAction.js'
 
 import utils from '@/utils.js'
+import { localServerEnabled } from '@/localServer.js'
 import Frames from '@/components/Frames.vue'
 import Loader from '@/components/Loader.vue'
 import Audio from '@/components/Audio.vue'
@@ -890,7 +891,7 @@ const uploadFile = async (event) => {
   removeUploadIsDraggedOver()
   cardStore.incrementCardZ(props.card.id)
   // pre-upload errors
-  if (!currentUserIsSignedIn.value) {
+  if (!localServerEnabled && !currentUserIsSignedIn.value) {
     state.error.signUpToUpload = true
     globalStore.addNotification({ message: 'To upload files, you need to Sign Up or In', type: 'info' })
     return

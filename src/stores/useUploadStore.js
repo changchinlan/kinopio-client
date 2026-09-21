@@ -10,6 +10,7 @@ import { useApiStore } from '@/stores/useApiStore'
 import { useBroadcastStore } from '@/stores/useBroadcastStore'
 
 import utils from '@/utils.js'
+import { localApi, localServerEnabled } from '@/localServer.js'
 import consts from '@/consts.js'
 
 import { nanoid } from 'nanoid'
@@ -96,6 +97,7 @@ export const useUploadStore = defineStore('upload', {
       })
     },
     async uploadFile ({ file, cardId, spaceId, boxId }) {
+      if (localServerEnabled) return this.uploadLocalFile({ file, cardId, spaceId, boxId })
       const globalStore = useGlobalStore()
       const broadcastStore = useBroadcastStore()
       const apiStore = useApiStore()
@@ -160,6 +162,55 @@ export const useUploadStore = defineStore('upload', {
         this.addImageDataUrl({ file, cardId, spaceId, boxId })
       })
     },
+    async uploadLocalFile ({ file, cardId, spaceId, boxId }) {
+      const globalStore = useGlobalStore()
+      const broadcastStore = useBroadcastStore()
+      const userStore = useUserStore()
+      const cardStore = useCardStore()
+      const uploadId = nanoid()
+      const fileName = utils.normalizeFileUrl(file.name)
+      const id = cardId || spaceId || boxId
+      const key = `${id}/${fileName}`
+      this.checkIfFileTooBig(file)
+      this.checkIfFileTypeBlocked(file)
+      if (!id || !fileName) throw new Error('invalid attachment name')
+      return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest()
+        const updateProgress = (percentComplete) => {
+          const updates = { cardId, spaceId, boxId, percentComplete, userId: userStore.id, id: uploadId }
+          this.updatePendingUpload(updates)
+          broadcastStore.update({ updates, name: 'updateRemotePendingUploads' })
+          cardStore.insertCardUploadPlaceholder(file, cardId)
+        }
+        request.upload.onprogress = event => {
+          if (event.lengthComputable) updateProgress(Math.floor(event.loaded / event.total * 100))
+        }
+        request.onerror = () => reject(new Error('attachment upload failed'))
+        request.onabort = () => reject(new Error('attachment upload cancelled'))
+        request.onload = () => {
+          if (request.status < 200 || request.status >= 300) {
+            reject(new Error(`attachment upload failed (${request.status})`))
+            return
+          }
+          updateProgress(100)
+          const complete = {
+            cardId,
+            spaceId,
+            boxId,
+            url: new URL(localApi(`/assets/${encodeURIComponent(id)}/${encodeURIComponent(fileName)}`), window.location.origin).href,
+            fileName
+          }
+          globalStore.triggerUploadComplete(complete)
+          this.removePendingUpload({ cardId, spaceId, boxId })
+          resolve(request.response)
+        }
+        this.addPendingUpload({ key, fileName, cardId, spaceId, boxId })
+        this.addImageDataUrl({ file, cardId, spaceId, boxId })
+        request.open('PUT', localApi(`/assets/${encodeURIComponent(id)}/${encodeURIComponent(fileName)}`))
+        request.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+        request.send(file)
+      })
+    },
     async addCardsAndUploadFiles ({ files, event, position }) {
       const apiStore = useApiStore()
       const userStore = useUserStore()
@@ -173,7 +224,7 @@ export const useUploadStore = defineStore('upload', {
         return
       }
       const cardIds = []
-      if (!userStore.getUserIsSignedIn) {
+      if (!localServerEnabled && !userStore.getUserIsSignedIn) {
         globalStore.addNotificationWithPosition({ message: 'Sign Up or In', position, type: 'info', layer: 'space', icon: 'cancel' })
         globalStore.addNotification({ message: 'To upload files, you need to Sign Up or In', type: 'info' })
         return
@@ -230,10 +281,12 @@ export const useUploadStore = defineStore('upload', {
         console.info('🍡 addCardsAndUploadFiles', file.type, file)
       }
       // add presignedPostData to files
-      const multiplePresignedPostData = await apiStore.createMultiplePresignedPosts({ files: filesPostData })
-      files.map((file, index) => {
-        file.presignedPostData = multiplePresignedPostData[index]
-      })
+      if (!localServerEnabled) {
+        const multiplePresignedPostData = await apiStore.createMultiplePresignedPosts({ files: filesPostData })
+        files.map((file, index) => {
+          file.presignedPostData = multiplePresignedPostData[index]
+        })
+      }
       // upload files
       await Promise.all(files.map(async (file, index) => {
         const cardId = cardIds[index]

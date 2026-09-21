@@ -10,6 +10,7 @@ import { useUploadStore } from '@/stores/useUploadStore'
 
 import Loader from '@/components/Loader.vue'
 import utils from '@/utils.js'
+import { localServerEnabled } from '@/localServer.js'
 import cache from '@/cache.js'
 import consts from '@/consts.js'
 
@@ -286,7 +287,7 @@ const isCardUrl = (image) => {
 }
 const selectFile = (event) => {
   clearErrors()
-  if (!currentUserIsSignedIn.value) {
+  if (!localServerEnabled && !currentUserIsSignedIn.value) {
     state.error.signUpToUpload = true
     return
   }

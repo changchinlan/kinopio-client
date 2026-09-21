@@ -400,6 +400,15 @@ export default {
     await idb.update('queue', (value) => [])
   },
 
+  // Local-server queue stays separate from the cloud API queue. A browser can
+  // switch targets while an old cloud queue still exists.
+  async localQueue () {
+    return (await this.getLocal('localQueue')) || []
+  },
+  async saveLocalQueue (queue) {
+    await this.saveLocal('localQueue', queue)
+  },
+
   // Backup API queue
 
   async queueBackup () {

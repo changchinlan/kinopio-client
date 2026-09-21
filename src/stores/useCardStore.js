@@ -694,9 +694,8 @@ export const useCardStore = defineStore('cards', {
       const apiStore = useApiStore()
       const userStore = useUserStore()
       const broadcastStore = useBroadcastStore()
-      const canEditSpace = userStore.getUserCanEditSpace
-      if (!canEditSpace) { return }
       for (const card of cards) {
+        if (!userStore.getUserCanEditCard(card)) continue
         this.removeCardFromState(card)
         broadcastStore.update({ updates: card, store: 'cardStore', action: 'removeCardFromState' })
         await apiStore.addToQueue({ name: 'deleteCard', body: card })

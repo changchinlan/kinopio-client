@@ -57,6 +57,9 @@ export default {
   edgeThreshold: 30,
   maxItemZ: 999999 - 1000,
   itemTypes: ['cards', 'connections', 'boxes', 'lists', 'lines', 'drawingStrokes'],
+  isLocalServer () {
+    return env.VITE_LOCAL_SERVER === 'true'
+  },
   isDevelopment () {
     if (env.VITE_PROD_SERVER === 'true') {
       return false
@@ -72,6 +75,7 @@ export default {
     return domain
   },
   apiHost (shouldUseProduction) {
+    if (this.isLocalServer()) { return '/local-api' }
     let host = 'https://api.kinopio.club'
     if (this.isDevelopment() && !shouldUseProduction) {
       host = 'https://kinopio.local:3000'

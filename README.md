@@ -1,140 +1,93 @@
-[![Netlify Status](https://api.netlify.com/api/v1/badges/f8ef64eb-39f9-46c6-b042-635a8704cc42/deploy-status)](https://app.netlify.com/sites/kinopio-client/deploys)
+# kinopio-client (local server fork)
 
-# kinopio-client
+Kinopio is a spatial thinking canvas for organizing ideas, notes, and visual documents.
 
-<img src="./src/assets/logos/logo-base.png" alt="logo" width="200">
+This repository is a fork of `kinopio-client` providing local canvas persistence, local attachment handling, and durable offline-friendly operation dispatch through a standalone loopback API server.
 
-Kinopio is a spatial thinking canvas for your new ideas and hard problems.
+## Architecture
 
-The `kinopio-client` is the client web app that users use to read and update spaces, cards, connections, etc. – which is saved to localStorage and to the `kinopio-server` via API requests, queued API operations, and websocket broadcasts.
+The local mode isolates spatial canvas data while retaining the upstream web interface:
 
-- [Kinopio Architecture and Costs](https://kinopio.club/JOGXFJ0FEMpS3crbh6U9k)
-- [How Kinopio is Made](https://pketh.org/how-kinopio-is-made.html) (How data is saved)
-- [Discord](https://kinopio.club/discord)
+- **Browser UI (`http://127.0.0.1:8082`)**:
+  - Activated with `VITE_LOCAL_SERVER=true`.
+  - Canvas operations append to a durable, client-side `localQueue` in IndexedDB.
+  - User interface preferences, local notifications, and visited space lists remain in IndexedDB.
+  - Proxies `/local-api` paths to `http://127.0.0.1:8081`.
+  - Some upstream cloud UI and requests remain, including community feeds, changelog, and date imagery. Their API endpoints are not implemented locally and can return 404; they are not required for canvas persistence.
+- **Standalone Local API Server (`http://127.0.0.1:8081`)**:
+  - Implemented using Node 22 native `node:sqlite` (`DatabaseSync`).
+  - Processes operation batches transactionally and deduplicates applied operation IDs.
+  - Serves uploaded attachments directly from the local disk with browser response sandbox headers.
+  - Defaults to `./kinopio-local.sqlite` and `./kinopio-local.sqlite.assets` in the working directory; wrapper scripts can override these to XDG data directories (`$XDG_DATA_HOME/kinopio`).
 
-## Install
+### Technical Characteristics
 
-    git clone https://github.com/pketh/kinopio-client.git
-    cd kinopio-client
-    npm install
-    npm install -g @vue/cli
-    npm install -g hostile
-    hostile set localhost kinopio.local
+- **Local Canvas Persistence**: Spaces, cards, connections, boxes, lists, lines, tags, and drawing strokes persist in SQLite.
+- **Queue Separation & Idempotency**: Canvas mutations queue in browser storage under `localQueue` (isolated from upstream cloud queues) and post to `POST /operations`. The server records `operationId` in the `applied_operations` table to prevent duplicate application during network retries.
+- **Committed Event Stream (SSE)**: The `/events` endpoint delivers committed operation batches to connected clients. Transient mouse dragging coordinates and live user presence indicators are not broadcast.
+- **Permissions & Authorship**: Local mode provides open editing across all items on the canvas without sign-in. Original author identifiers (`userId`) are preserved during document import; edit metadata (`nameUpdatedByUserId`, `nameUpdatedAt`) is updated upon modifications.
+- **Upload & Request Limits**: The client UI enforces a 5MB threshold for standard uploads (`consts.freeUploadSizeLimit`). The local backend server enforces a 16MB stream limit per attachment and a 10MB limit per JSON operation batch. Attachments are served with `Content-Security-Policy: sandbox` and `X-Content-Type-Options: nosniff` headers.
 
-## Run
+## Getting Started
 
-    npm run dev --host
-    https://kinopio.local:8080
+### Prerequisites
 
-## Run Tests
+- Node.js 22.23+ (tested with 22.23.2, including native `node:sqlite` support)
+- npm (using repository `package-lock.json`)
 
-    npm run test
+### Installation
 
-## Run with Production API Server
+```bash
+npm ci
+```
 
-You can force the local app to use the prod API by editing `.env.local` so that `VITE_PROD_SERVER=true`. Create `env.local` by duplicating and renaming `.env.local.sample`.
+### Running
 
-When the app starts up, the `🐸 kinopio-server URL` will be displayed in the browser logs.
+#### Option A: Using Nix Wrapper Scripts
 
-## Linting
+The repository includes executable scripts configured with Nix shebangs. The API wrapper stores data in `${XDG_DATA_HOME:-$HOME/.local/share}/kinopio/`; `KINOPIO_LOCAL_DB`, `KINOPIO_LOCAL_ASSETS`, and `KINOPIO_LOCAL_PORT` override its defaults:
 
-Linting runs on commit, but you can manually run it with
+```bash
+# Terminal 1: Start API server on 127.0.0.1:8081
+./run-local-api
 
-	npm run lint
+# Terminal 2: Start UI dev server on 127.0.0.1:8082
+./run-local-ui
+```
 
-## Primary Files
+#### Option B: Using Portable Node Commands
 
-| File | Description |
-| ------------- |-------------|
-| `main.js` | Entry point, inits router |
-| `router`  | Handles static page and app routes |
-| `App.vue` | Root component, used by all routes|
-| `stores/useGlobalStore.js` | [Pinia](https://pinia.vuejs.org//) store with global interaction state |
-| `stores/useSpaceStore.js` | Pinia store module that handles loading spaces. Each item type in a space has it's own store, e.g. `useCardStore.js`, `useBoxStore.js`, …
-| `utils.js` | Functional methods that just do dom manipulations or common tasks. These can't access components or store directly |
-| `views/Space.vue` | Contains the core interaction layer which sends user inputs to painting, connecting, dragging etc. components. Also where new connections are created and checked to see if they connect |
-| `views/Add.vue` | `kinopio.club/add` page for browser extensions and iOS share sheet |
-| `components/Card.vue` | Displays cards from `cardStore` |
-| `components/Connection.vue` | Displays connections from `connectionStore` |
-| `components/Box.vue` | Displays boxes from `boxStore` |
-| `components/Header.vue` | Used for moving between spaces, searching/filter, shows user presence, changing user prefs, and Kinopio meta options. Shown on all routes |
-| `components/layers/PaintSelectCanvas.vue` | The layers used for drawing the paint strokes for multiple card and connection selection which reveals `MultipleSelectedActions`, scroll locking on touch, and other `<canvas>` elements that need to cover the viewport |
+```bash
+# Terminal 1: Start API server (defaults to port 8081)
+node local-server/server.js
 
-## Blank Template Files
+# Terminal 2: Start UI server (port 8082 with local proxy)
+VITE_LOCAL_SERVER=true VITE_PROD_SERVER=true npm run dev -- --host 127.0.0.1
+```
 
-Use these as a starting point for new vue components,
+Open `http://127.0.0.1:8082/app` in the browser to access the local canvas.
 
-| File | Description |
-| ------------- |-------------|
-| `components/NewBlankTemplate.vue` | Template file for new components |
-| `components/NewBlankDialogTemplate.vue` | Template file for new dialog components |
-| `components/NewBlankPageTemplate.vue` | Template file for new static SSG pages |
+### Importing Spaces
 
-## User States to Design For
+To import a complete Kinopio JSON space document into the local database:
 
-| State | Description |
-| ------------- |-------------|
-| `offline` | indexedDB and API queue operations only |
-| `not signed in` | indexedDB only |
-| `space is read only` | cannot add cards or edit |
-| `space is open` | can add cards, can only edit cards they created |
-| `mobile` | touch handlers, no hover, small screen |
-| `desktop zoom out` | using the zoom bar or cmd+/- |
-| `pinch zoom out/in` | using native touch gesture on mobile |
-| `group member or admin` | can see and edit all spaces in the group |
+```bash
+curl --fail-with-body -H 'Content-Type: application/json' \
+  --data-binary @space-export.json \
+  http://127.0.0.1:8081/spaces
+```
 
-## Post Messages
+## Running Tests
 
-Post messages are used to communicate with a parent `secureAppContext` environment, such as the iOS app that wraps the website in a child webview.
+- **Unit tests (targeted Vitest suite)**:
+  ```bash
+  npx vitest run tests/unit/
+  ```
+- **Local server integration tests (Node native test runner)**:
+  ```bash
+  node --test local-server/test.mjs
+  ```
 
-## How to update the 'Hello Kinopio' Space
+## License
 
-The hello space serves as the entry point and marketing page for new users. It's generated within the app from `hello.json`.
-
-To update it, create the space and export its json. Replace the contents of`hello.json` with the new json file.
-
-## How to update the Changelog and "What's New"
-
-[Instructions here](https://kinopio.club/how-to-update-changelog-oi4jZTSI_eAEvov9XbjJM)
-
-## HTTPS Signing
-
-> You shouldn't need to run this or update the cert until 2025, but just in case
-
-To work with code that only works on https (e.g. clipboard copy and paste), [mkcert](https://github.com/FiloSottile/mkcert) was used to create a local ssl certificate
-
-    brew install mkcert
-    mkcert -install
-    mkdir ./.cert
-	mkcert -key-file ./.cert/key.pem -cert-file ./.cert/cert.pem "kinopio.local" "localhost" "127.0.0.1"
-
-## Pre-rendered Pages (Static-Site Generation, SSG)
-
-During the deploy/build process (`npm run build`), [`vite-ssg`](https://github.com/antfu-collective/vite-ssg) generates static HTML pages of routes defined in `vite.config.js` in `ssgOptions.includedRoutes`. Static pages (compiled from vue router into `/dist`) are served to the client directly. The client only goes through vue router for non-static routes like `/app`.
-
-For unfurling, specify static pages in `page-meta.js`.
-
-To test pre-rendered page routes use `npm run build-dev`.
-
-## Testing page-meta
-
-`/edge-functions/page-meta.js` is an [edge function](https://www.netlify.com/platform/core/functions/) that runs in an isolated server-side container before page requests. It writes `index.html` metatags for title, description etc. for crawlers.
-
-I couldn't figure out how to run the netlify-cli locally, so instead I test this in staging using PR deploy URLs.
-
-To view the logs:
-
-    Netlify project → Deploys → Choose PR deployment → Edge Functions
-
-(`Edge Functions` is only visible after deployment is complete)
-
-## Netlify Prerender
-
-The prerender extension in Netlify compiles space URLs into static html, so that they're scannable by search engines which can't run client js.
-
-## See Also
-
-- [are.na/kinopio/kinopio-design](https://www.are.na/kinopio/kinopio-design)
-- [github.com/kinopio-club](https://github.com/kinopio-club)
-- [User Forums](https://forum.kinopio.club)
-- [Discord](https://kinopio.club/discord)
+This project is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).

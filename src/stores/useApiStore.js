@@ -10,12 +10,20 @@ import { useThemeStore } from '@/stores/useThemeStore'
 import utils from '@/utils.js'
 import consts from '@/consts.js'
 import cache from '@/cache.js'
+import { localApi, localCanvasOperations, localServerEnabled, localUiOperations } from '@/localServer.js'
+import { createLocalQueue } from '@/localQueue.js'
+import { postLocalOperations } from '@/localTransport.js'
 
 import debounce from 'lodash-es/debounce'
 import uniq from 'lodash-es/uniq'
 import { nanoid } from 'nanoid'
 
 let sessionQueue = []
+let sessionQueueReady
+const localQueue = createLocalQueue({
+  load: () => cache.localQueue(),
+  save: queue => cache.saveLocalQueue(queue)
+})
 const cardNameUpdatedAtByCardId = {}
 
 const restoreSessionQueueFromBackup = async () => {
@@ -24,7 +32,10 @@ const restoreSessionQueueFromBackup = async () => {
     console.log('🛫 restored sessionQueue from backup', sessionQueue)
   }
 }
-restoreSessionQueueFromBackup()
+const initializeSessionQueue = () => {
+  sessionQueueReady ||= restoreSessionQueueFromBackup()
+  return sessionQueueReady
+}
 
 const mergeOperationBody = (prev, next) => {
   const merged = { ...prev, ...next }
@@ -198,9 +209,58 @@ export const useApiStore = defineStore('api', {
       })
     },
 
+    async initializeLocalQueue () {
+      await localQueue.initialize()
+      if (localQueue.pending.length) this.sendQueue()
+    },
+
+    async getLocalSpaces () {
+      const response = await fetch(localApi('/spaces'))
+      if (!response.ok) throw Object.assign(new Error(response.statusText), { status: response.status })
+      const { spaces } = await response.json()
+      return utils.sortByUpdatedAt(spaces)
+    },
+
+    async createLocalSpace (space) {
+      const options = await this.requestOptions({ body: space, method: 'POST', space })
+      const response = await fetch(localApi('/spaces'), options)
+      if (!response.ok) throw Object.assign(new Error(response.statusText), { status: response.status })
+      return (await response.json()).space
+    },
+
+    localQueueIsIdle () {
+      return localQueue.idle
+    },
+
+    localQueueGeneration () {
+      return localQueue.generation
+    },
+
+    async sendLocalQueue () {
+      await this.initializeLocalQueue()
+      if (!localQueue.pending.length || localQueue.blocked) return
+      const globalStore = useGlobalStore()
+      globalStore.sendingQueue = structuredClone(localQueue.pending)
+      const result = await localQueue.flush(queue => postLocalOperations({
+        operations: queue,
+        requestOptions: options => this.requestOptions(options)
+      }))
+      globalStore.clearSendingQueue()
+      if (!result.sent) {
+        console.error('🚑 local queue send failed', result.error)
+        globalStore.updateNotifyServerCouldNotSave(true)
+        return
+      }
+      globalStore.notifyServerCouldNotSave = false
+      if (result.drained) useSpaceStore().reconcileLocalSpace()
+      else this.sendQueue()
+    },
+
     // Add and Send Queue Operations
 
     sendQueue: debounce(async function () {
+      if (localServerEnabled) return this.sendLocalQueue()
+      await initializeSessionQueue()
       const userStore = useUserStore()
       const spaceStore = useSpaceStore()
       const globalStore = useGlobalStore()
@@ -243,19 +303,31 @@ export const useApiStore = defineStore('api', {
     async addToQueue ({ name, body, spaceId, allowNonMember }) {
       const userStore = useUserStore()
       const spaceStore = useSpaceStore()
-      if (!allowNonMember && !userStore.getUserCanEditSpace) { return }
+      if (localServerEnabled) {
+        if (localUiOperations.has(name)) return
+        if (!localCanvasOperations.has(name)) {
+          console.warn('local server will reject unsupported operation', name)
+        }
+      } else if (!allowNonMember && !userStore.getUserCanEditSpace) { return }
       body = utils.clone(body)
       body.operationId = nanoid()
       body.spaceId = spaceId || spaceStore.id
       body.userId = userStore.id
       body.clientCreatedAt = new Date()
       const isSignedIn = userStore.getUserIsSignedIn
-      if (!isSignedIn) { return }
+      if (!localServerEnabled && !isSignedIn) { return }
       if (name === 'updateCard') { normalizeCardName(body) }
       const newItem = {
         name,
         body
       }
+      // Local writes stay serial and unmerged: operation IDs are the retry idempotency key.
+      if (localServerEnabled) {
+        await localQueue.enqueue(newItem)
+        this.sendQueue()
+        return
+      }
+      await initializeSessionQueue()
       // try to to merge new item into matching prev one
       const cumulativeDeltaOperations = ['updateUserCardsCreatedCount', 'updateUserCardsCreatedCountRaw']
       const shouldNotMergeOperations = ['createList', 'createCard', 'createBox', 'createConnection', 'createDrawingStroke', 'removeDrawingStroke', 'createUserNotification']
@@ -516,6 +588,7 @@ export const useApiStore = defineStore('api', {
       }
     },
     async getUserSpaces () {
+      if (localServerEnabled) return this.getLocalSpaces()
       const globalStore = useGlobalStore()
       const userStore = useUserStore()
       const apiKey = userStore.apiKey
@@ -1379,6 +1452,7 @@ export const useApiStore = defineStore('api', {
     // Notifications
 
     async getNotifications () {
+      if (localServerEnabled) return []
       const globalStore = useGlobalStore()
       const userStore = useUserStore()
       const apiKey = userStore.apiKey

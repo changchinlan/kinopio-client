@@ -27,3 +27,10 @@ yarn-error.log*
 
 # Local HTTPS certs (mkcert)
 /.cert
+
+# Local workspace data and external CLI checkout
+*.sqlite
+*.sqlite-*
+*.sqlite.assets/
+/local-server/kinopio.js
+/work/

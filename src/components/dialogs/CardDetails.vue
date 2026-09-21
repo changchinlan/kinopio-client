@@ -32,6 +32,7 @@ import ItemDetailsCheckboxButton from '@/components/ItemDetailsCheckboxButton.vu
 import ItemDetailsDebug from '@/components/ItemDetailsDebug.vue'
 import CardDetailsResize from '@/components/CardDetailsResize.vue'
 import utils from '@/utils.js'
+import { localServerEnabled } from '@/localServer.js'
 import consts from '@/consts.js'
 
 import debounce from 'lodash-es/debounce'
@@ -1121,7 +1122,7 @@ const cardPendingUpload = computed(() => {
   return pendingUploads.find(upload => upload.cardId === card.value.id)
 })
 const uploadFile = async (file) => {
-  if (!currentUserIsSignedIn.value) {
+  if (!localServerEnabled && !currentUserIsSignedIn.value) {
     state.error.signUpToUpload = true
     return
   }

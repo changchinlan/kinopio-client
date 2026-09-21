@@ -13,6 +13,7 @@ import newSpace from '@/data/new.json'
 import cache from '@/cache.js'
 import utils from '@/utils.js'
 import consts from '@/consts.js'
+import { localServerEnabled } from '@/localServer.js'
 
 import { nanoid } from 'nanoid'
 import fuzzy from '@/libs/fuzzy.js'
@@ -141,6 +142,16 @@ const excludeCurrentSpace = () => {
 const updateSpaces = async () => {
   if (props.userSpaces) {
     state.spaces = props.userSpaces
+  } else if (localServerEnabled) {
+    state.isLoading = true
+    try {
+      state.spaces = await apiStore.getLocalSpaces()
+    } catch (error) {
+      console.error('local server could not list spaces', error)
+      state.spaces = []
+    } finally {
+      state.isLoading = false
+    }
   } else {
     state.spaces = await cache.getAllSpaces()
     updateWithRemoteSpaces()
@@ -197,7 +208,10 @@ const createNewSpace = async () => {
   space.background = space.background || consts.defaultSpaceBackground
   space = await cache.updateIdsInSpace(space)
   console.info('🚚 create new space', space)
-  if (currentUserIsSignedIn.value) {
+  if (localServerEnabled) {
+    space = await apiStore.createLocalSpace(space)
+    await cache.saveSpace(space)
+  } else if (currentUserIsSignedIn.value) {
     await apiStore.createSpace(space)
   }
   state.isLoadingNewSpace = false

@@ -16,15 +16,9 @@ const props = defineProps({
   connections: Array
 })
 
-const isSpaceMember = computed(() => userStore.getUserIsSpaceMember)
 const canEditAll = computed(() => {
-  if (isSpaceMember.value) { return true }
   if (!props.connections.length) { return }
-  const connectionsCreatedByCurrentUser = props.connections.filter(connection => {
-    if (!connection) { return }
-    return userStore.getItemIsCreatedByUser(connection)
-  })
-  return connectionsCreatedByCurrentUser.length === props.connections.length
+  return props.connections.every(connection => userStore.getUserCanEditConnection(connection))
 })
 
 // direction
