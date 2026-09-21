@@ -11,6 +11,7 @@ import { useUploadStore } from '@/stores/useUploadStore'
 import ColorPicker from '@/components/dialogs/ColorPicker.vue'
 import Loader from '@/components/Loader.vue'
 import utils from '@/utils.js'
+import { localServerEnabled } from '@/localServer.js'
 import BackgroundPreview from '@/components/BackgroundPreview.vue'
 import ImageList from '@/components/ImageList.vue'
 import backgroundImagesJSON from '@/data/backgroundImages.json'
@@ -325,7 +326,7 @@ const removeBackground = async () => {
 // upload
 
 const selectFile = (event) => {
-  if (!currentUserIsSignedIn.value) {
+  if (!localServerEnabled && !currentUserIsSignedIn.value) {
     state.error.signUpToUpload = true
     return
   }

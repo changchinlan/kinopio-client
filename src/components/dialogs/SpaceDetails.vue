@@ -13,6 +13,7 @@ import SpaceFilters from '@/components/dialogs/SpaceFilters.vue'
 import SpaceList from '@/components/SpaceList.vue'
 import AddSpaceButton from '@/components/AddSpaceButton.vue'
 import utils from '@/utils.js'
+import { localServerEnabled } from '@/localServer.js'
 
 import debounce from 'lodash-es/debounce'
 import uniqBy from 'lodash-es/uniqBy'
@@ -77,6 +78,7 @@ const init = async () => {
   closeDialogs()
   await updateLocalSpaces()
   updateHeights()
+  if (localServerEnabled) { return }
   await updateWithRemoteSpaces()
   updateHeights()
   spaceStore.updateSpacePreviewImage()
@@ -331,6 +333,17 @@ const removeSpaceFromSpaces = (spaceId) => {
 
 const updateLocalSpaces = async () => {
   if (!props.visible) { return }
+  if (localServerEnabled) {
+    state.isLoadingRemoteSpaces = true
+    try {
+      state.spaces = await apiStore.getLocalSpaces()
+    } catch (error) {
+      console.error('local server could not list spaces', error)
+    } finally {
+      state.isLoadingRemoteSpaces = false
+    }
+    return
+  }
   let cacheSpaces = await cache.getAllSpaces()
   cacheSpaces = utils.addCurrentUserIsCollaboratorToSpaces(cacheSpaces, userStore.getUserAllState)
   state.spaces = cacheSpaces

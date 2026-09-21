@@ -37,7 +37,7 @@ const state = reactive({
   lockingAlpha: 0
 })
 
-const userIsSpaceMember = computed(() => userStore.getUserIsSpaceMember)
+const canEditLine = computed(() => userStore.getUserCanEditLine())
 
 // Remote
 
@@ -322,7 +322,7 @@ const focusLine = (line) => {
   )
   //- select all below
   .button-wrap.select-all-below-button-wrap
-    button.small-button.translucent-button(v-if="userIsSpaceMember" @click.stop="selectAllBelow")
+    button.small-button.translucent-button(v-if="canEditLine" @click.stop="selectAllBelow")
       img.icon(src="@/assets/brush-y.svg")
   //- jump to
   //- .button-wrap.jump-to-button-wrap

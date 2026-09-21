@@ -122,14 +122,7 @@ watch(() => currentConnection.value, (value, prevValue) => {
   globalStore.updateLastInteractedConnectionColor(currentConnection.value.color)
 })
 
-const canEditConnection = computed(() => {
-  const isSpaceMember = userStore.getUserIsSpaceMember
-  const connectionIsCreatedByCurrentUser = userStore.getItemIsCreatedByUser(currentConnection.value)
-  const canEditSpace = userStore.getUserCanEditSpace
-  if (isSpaceMember) { return true }
-  if (canEditSpace && connectionIsCreatedByCurrentUser) { return true }
-  return false
-})
+const canEditConnection = computed(() => userStore.getUserCanEditConnection(currentConnection.value))
 const colorisDark = computed(() => {
   return utils.colorIsDark(currentConnection.value.color)
 })

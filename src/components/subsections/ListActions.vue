@@ -56,7 +56,7 @@ const colorClasses = computed(() => {
   return utils.colorClasses({ backgroundColor: props.backgroundColor })
 })
 
-const canEditAll = computed(() => userStore.getUserIsSpaceMember)
+const canEditAll = computed(() => userStore.getUserCanEditList())
 
 // utils
 

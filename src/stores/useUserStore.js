@@ -14,6 +14,7 @@ import utils from '@/utils.js'
 import consts from '@/consts.js'
 import cache from '@/cache.js'
 import postMessage from '@/postMessage.js'
+import { localServerEnabled } from '@/localServer.js'
 
 import randomColor from 'randomcolor'
 import { nanoid } from 'nanoid'
@@ -197,6 +198,7 @@ export const useUserStore = defineStore('user', {
       const globalStore = useGlobalStore()
       const spaceStore = useSpaceStore()
       if (globalStore.isEmbedMode) { return }
+      if (localServerEnabled) return true
       const spaceIsOpen = spaceStore.privacy === 'open'
       const currentUserIsSignedIn = this.getUserIsSignedIn
       const canEditOpenSpace = spaceIsOpen && currentUserIsSignedIn
@@ -217,6 +219,7 @@ export const useUserStore = defineStore('user', {
       }
     },
     getUserIsCommentOnly () {
+      if (localServerEnabled) return false
       const canEditSpace = this.getUserCanEditSpace
       const isSpaceMember = this.getUserIsSpaceMember
       return canEditSpace && !isSpaceMember
@@ -240,7 +243,20 @@ export const useUserStore = defineStore('user', {
       const isGroupMember = groupStore.getIsCurrentSpaceGroupUser
       return Boolean(isSpaceUser || isSpaceCollaborator || isGroupMember)
     },
+    getUserCanEditList () {
+      return localServerEnabled || this.getUserIsSpaceMember
+    },
+    getUserCanEditLine () {
+      return localServerEnabled || this.getUserIsSpaceMember
+    },
+    getUserCanEditConnection (connection) {
+      if (localServerEnabled) return true
+      const isSpaceMember = this.getUserIsSpaceMember
+      if (isSpaceMember) { return true }
+      return this.getUserCanEditSpace && this.getItemIsCreatedByUser(connection)
+    },
     getUserCanEditBox (box) {
+      if (localServerEnabled) return true
       const isSpaceMember = this.getUserIsSpaceMember
       if (isSpaceMember) { return true }
       const canEditSpace = this.getUserCanEditSpace
@@ -261,6 +277,7 @@ export const useUserStore = defineStore('user', {
       return isCreatedByUser || isUpdatedByUser || isNoUser
     },
     getUserCanEditCard (card) {
+      if (localServerEnabled) return true
       const isSpaceMember = this.getUserIsSpaceMember
       if (isSpaceMember) { return true }
       const canEditSpace = this.getUserCanEditSpace

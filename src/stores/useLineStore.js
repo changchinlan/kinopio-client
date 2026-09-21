@@ -110,7 +110,7 @@ export const useLineStore = defineStore('lines', {
       const apiStore = useApiStore()
       const userStore = useUserStore()
       const broadcastStore = useBroadcastStore()
-      if (!userStore.getUserIsSpaceMember) { return }
+      if (!userStore.getUserCanEditLine()) { return }
       line = this.normalizeNewLine(line)
       this.addLineToState(line)
       globalStore.focusOnItemId = line.id
@@ -151,7 +151,7 @@ export const useLineStore = defineStore('lines', {
     },
     moveLines ({ endCursor, prevCursor, delta }) {
       const userStore = useUserStore()
-      if (!userStore.getUserIsSpaceMember) { return }
+      if (!userStore.getUserCanEditLine()) { return }
       const globalStore = useGlobalStore()
       const zoom = globalStore.getSpaceCounterZoomDecimal
       if ((!endCursor || !prevCursor) && !delta) { return }
@@ -200,8 +200,7 @@ export const useLineStore = defineStore('lines', {
       const userStore = useUserStore()
       const spaceStore = useSpaceStore()
       const broadcastStore = useBroadcastStore()
-      const canEditSpace = userStore.getUserIsSpaceMember
-      if (!canEditSpace) { return }
+      if (!userStore.getUserCanEditLine()) { return }
       for (const id of ids) {
         const line = this.getLine(id)
         await apiStore.addToQueue({ name: 'removeLine', body: line })

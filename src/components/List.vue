@@ -76,7 +76,7 @@ const state = reactive({
   remoteConnectionColor: ''
 })
 
-const canEditSpace = computed(() => userStore.getUserCanEditSpace)
+const canEditSpace = computed(() => userStore.getUserCanEditList())
 const userColor = computed(() => userStore.color)
 
 // is visible in viewport, perf, should render
