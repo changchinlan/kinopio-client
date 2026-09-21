@@ -46,6 +46,28 @@ Run the standalone server test suite:
 node --test local-server/test.mjs
 ```
 
+## Running as systemd user services
+
+`local-server/systemd/` holds the two unit files used on the development
+machine, kept here as a deployment reference. Both hardcode the checkout path
+`/home/kyaru/kaoru/playground/kinopio-local-server`; adjust `WorkingDirectory`
+and `ExecStart` when installing elsewhere. They run the `run-local-api` and
+`run-local-ui` wrappers, which pull Node 22 through a nix shebang and point the
+database and assets at `~/.local/share/kinopio/`.
+
+```sh
+cp local-server/systemd/kinopio-{api,ui}.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now kinopio-api.service kinopio-ui.service
+```
+
+`kinopio-ui.service` declares `Requires=kinopio-api.service`, so stopping or
+restarting the API also stops the UI. Restart both together:
+
+```sh
+systemctl --user restart kinopio-api.service kinopio-ui.service
+```
+
 ## External CLI Tool
 
 A command-line tool for inspecting and manipulating local spaces is maintained externally in the `kaoru-skills` repository under `skills/kinopio/tools/kinopio/kinopio.js` (an optional symlink `local-server/kinopio.js` may point to it). The CLI is optional and is not maintained as a standalone component in this repository.
