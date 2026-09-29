@@ -1,6 +1,6 @@
 # Kinopio Local Server Prototype
 
-A loopback-only, standalone Node server for durable canonical Kinopio space documents. It uses Node 22's built-in `node:sqlite` (`DatabaseSync`); no extra runtime dependencies or Vite configurations are required.
+A loopback-only Node server for canonical Kinopio space documents and live collaboration. It uses Node 22's built-in `node:sqlite` (`DatabaseSync`) for durable edits and `ws` for transient room messages.
 
 ```sh
 KINOPIO_LOCAL_PORT=8081 \
@@ -23,6 +23,7 @@ When environment variables are omitted, the server listens on `127.0.0.1:8081` a
 | `GET` | `/assets/:id/:name` | — | Binary stream | Serves attachment with browser sandbox headers |
 | `GET` | `/events` | — | `text/event-stream` | SSE stream announcing committed `{ operations, spaceIds }` |
 | `POST` | `/operations` | `[{ name, body }, ...]` (≤ 10MB) | `{ operations, spaceIds }` | Applies operation batch in a single transaction |
+| `WS` | `/ws` | JSON frames (below) | JSON frames | Space-scoped presence and transient editing relay |
 
 ## Storage & Transaction Semantics
 
@@ -36,7 +37,23 @@ When environment variables are omitted, the server listens on `127.0.0.1:8081` a
 - **Idempotent Card Updates**: An `updateCard` payload containing only `{ id }` (resulting from undefined snap-alignment coordinates omitted during JSON serialization) is treated as a no-op before entity lookup. Any update containing actual fields on a non-existent card returns a 404 error.
 - **Authorship & Ownership**: Imported creator identifiers (`userId`) are preserved. Entity updates strip incoming `userId` to avoid overwriting the original creator, while tracking modification metadata (`nameUpdatedByUserId`, `nameUpdatedAt`).
 - **Attachment Delivery**: File uploads stream through a 16MB length limit with atomic disk writes. Browser download responses send `Content-Security-Policy: sandbox` and `X-Content-Type-Options: nosniff` headers to isolate served files from the app origin.
-- **Server-Sent Events**: The `/events` stream notifies connected clients of committed database changes. Transient mouse motion and active user presence are not handled.
+- **Server-Sent Events**: The `/events` stream notifies connected clients of committed database changes. Browsers reconcile against SQLite after a commit; WebSocket messages display edits and presence immediately.
+
+## WebSocket room protocol
+
+Connect to `ws://127.0.0.1:8081/ws` (browser clients use the Vite `/local-api/ws` proxy). Each frame has `{ message, spaceId, clientId, user }`. `clientId` identifies one connection/tab; `user` is public metadata with at least `{ id, name, color }`. A client joins by sending `{ message: { name: 'joinSpaceRoom' }, spaceId, clientId, user }`. The relay sends `{ message: { name: 'userJoinedRoom' }, spaceId, clientId, user }` for each already-present peer to the joiner and announces the joiner to peers. Joining another space leaves the previous room. Leaving or disconnecting announces `{ message: { name: 'userLeftRoom' }, spaceId, clientId, user }` to peers.
+
+A joined client can send `{ message: { action, store?, updates }, spaceId, clientId, user }`. The relay sends the same action to the other room members, excluding the sender's `clientId`; it does not write these frames to SQLite. Browser cursor motion uses `action: 'triggerUpdateRemoteUserCursor'` and `updates: { userId, x, y }`; card selection uses `action: 'updateRemoteCardsSelected'` and `updates: { userId, cardIds }`. Canvas edits use the client's existing Pinia store/action format (for example `store: 'cardStore'`, `action: 'updateCardsState'`, `updates: [{ id, x, y }]`). Persist edits separately with `POST /operations`; committed results arrive on `/events`.
+
+## Agent presence
+
+`local-server/presence.js` exports `connect({ url, id, name, color })`. Await it, then call `join(spaceId)`, `cursor(x, y)` using canvas coordinates, `select(cardIds)`, and `leave()`. The example appears as `小薰` with a purple cursor and optionally selects one card; it stays connected until terminated:
+
+```sh
+KINOPIO_LOCAL_PORT=8081 node local-server/presence-example.mjs SPACE_ID CARD_ID
+```
+
+For a lasting edit, use `POST /operations` with an `operationId` (for example `updateCard` with `{ operationId, spaceId, id, name }`). Presence frames alone do not modify the database.
 
 ## Test Suite
 

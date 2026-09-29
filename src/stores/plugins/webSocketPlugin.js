@@ -37,6 +37,10 @@ const debouncedStoreActions = new Map()
 export default function webSocketPlugin () {
   let websocket, currentSpaceRoom, isConnected
   const clientId = nanoid()
+  const publicUser = pinia => {
+    const user = useUserStore(pinia).getUserPublicMeta
+    return localServerEnabled ? { ...user, name: user.name || 'Anonymous' } : user
+  }
 
   console.info('🌳 websocket client initialized', clientId)
 
@@ -77,7 +81,7 @@ export default function webSocketPlugin () {
     const spaceStore = useSpaceStore(pinia)
     const userStore = useUserStore(pinia)
     const spaceId = spaceStore.id
-    const user = userStore.getUserPublicMeta
+    const user = publicUser(pinia)
     const credentials = userStore.getUserCredentials
     // check if should join
     if (!websocket) {
@@ -134,6 +138,7 @@ export default function webSocketPlugin () {
     }
     globalStore.isConnectingToBroadcast = false
     globalStore.isJoiningSpace = true
+    currentSpaceRoom = null
     try {
       websocket.close()
       websocket = null
@@ -173,10 +178,8 @@ export default function webSocketPlugin () {
   // init
 
   const connectToWebsocket = (pinia) => {
-    if (localServerEnabled) return
     const globalStore = useGlobalStore(pinia)
     const spaceStore = useSpaceStore(pinia)
-    const userStore = useUserStore(pinia)
     const broadcastStore = useBroadcastStore(pinia)
     if (!globalStore.isSpacePage) { return }
     // prevent duplicate connections
@@ -215,6 +218,7 @@ export default function webSocketPlugin () {
     websocket.onclose = (event) => {
       console.warn('🌚 websocket connection closed', event.code, globalStore.isConnectingToBroadcast)
       isConnected = false
+      currentSpaceRoom = null
       globalStore.isJoiningSpace = true
       websocket = null
       // Only reconnect on unexpected closures
@@ -287,6 +291,7 @@ export default function webSocketPlugin () {
     } else if (name === 'updateSpaceClients') {
       spaceStore.updateSpaceClients()
     } else if (isAction) {
+      if (localServerEnabled) spaceStore.updateUserPresence(user)
       const piniaStore = getPiniaStore(store, pinia)
       if (piniaStore) {
         handleAction(store, pinia, action, updates)
@@ -342,7 +347,6 @@ export default function webSocketPlugin () {
   }
   const queueMessage = (pinia, message, type) => {
     const spaceStore = useSpaceStore(pinia)
-    const userStore = useUserStore(pinia)
     if (!websocket || !isConnected) {
       return
     }
@@ -353,7 +357,7 @@ export default function webSocketPlugin () {
       message,
       clientId,
       spaceId: spaceStore.id,
-      user: userStore.getUserPublicMeta
+      user: publicUser(pinia)
     }
     if (message?.action) {
       // only send unique actions per frame
@@ -379,7 +383,6 @@ export default function webSocketPlugin () {
     const globalStore = useGlobalStore(pinia)
     const broadcastStore = useBroadcastStore(pinia)
     const spaceStore = useSpaceStore(pinia)
-    const userStore = useUserStore(pinia)
     if (!globalStore.isSpacePage) { return }
     const message = args[0]
     switch (name) {

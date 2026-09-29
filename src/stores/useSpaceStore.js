@@ -374,6 +374,7 @@ export const useSpaceStore = defineStore('space', {
           else await this.createSpace()
         }
         globalStore.triggerUpdateWindowHistory()
+        if (!globalStore.isLoadingSpace) broadcastStore.connect()
         return
       }
       const cachedSpaces = await cache.getAllSpaces()
@@ -547,7 +548,9 @@ export const useSpaceStore = defineStore('space', {
       const listStore = useListStore()
       isLoadingRemoteSpace = true
       space = utils.normalizeSpace(space)
-      space.spectators = []
+      const sameLocalSpace = localServerEnabled && space.id === this.id
+      space.spectators = sameLocalSpace ? this.spectators || [] : []
+      if (sameLocalSpace) space.clients = this.clients || []
       globalStore.notifySpaceIsRemoved = space.isRemoved
       // init items
       cardStore.initializeRemoteCards(space.cards)
@@ -608,6 +611,23 @@ export const useSpaceStore = defineStore('space', {
         this.connectLocalEvents()
         return false
       }
+      // Keep the latest live drag position until its sender finishes and the commit arrives.
+      if (reconciliation) {
+        const lineStore = useLineStore()
+        const dragging = [
+          ['cards', globalStore.remoteCardsDragging, id => cardStore.getCard(id)],
+          ['boxes', globalStore.remoteBoxesDragging, id => boxStore.getBox(id)],
+          ['lists', globalStore.remoteListsDragging, id => listStore.getList(id)],
+          ['lines', globalStore.remoteLinesDragging, id => lineStore.getLine(id)]
+        ]
+        for (const [collection, remoteDragging, getItem] of dragging) {
+          const ids = new Set(remoteDragging.map(item => item.cardId || item.boxId || item.listId || item.lineId))
+          remoteSpace[collection] = remoteSpace[collection].map(item => {
+            const current = ids.has(item.id) && getItem(item.id)
+            return current ? { ...item, x: current.x, y: current.y, xDisplay: current.xDisplay, yDisplay: current.yDisplay } : item
+          })
+        }
+      }
       // Never let a fetch begun before an edit overwrite that optimistic edit.
       await this.restoreSpaceRemote(remoteSpace, {
         replayLocalHistory: false,
@@ -630,6 +650,7 @@ export const useSpaceStore = defineStore('space', {
       globalStore.triggerDrawingInitialize()
       globalStore.updateTags()
       this.connectLocalEvents()
+      useBroadcastStore().joinSpaceRoom()
       return true
     },
     async reconcileLocalSpace () {
@@ -1301,8 +1322,8 @@ export const useSpaceStore = defineStore('space', {
       const newUser = update.user || update
       const member = this.getSpaceCollaboratorById(newUser.id)
       if (member) {
-        this.updateSpaceClients([newUser])
-      } else {
+        if (!this.clients.some(client => client.id === newUser.id)) this.updateSpaceClients([newUser])
+      } else if (!this.spectators.some(spectator => spectator.id === newUser.id)) {
         this.addSpectatorToSpace(newUser)
       }
       // ping idle client timer

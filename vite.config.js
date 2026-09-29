@@ -177,7 +177,7 @@ export default defineConfig(async ({ command, mode }) => {
       strictPort: localServer,
       host: '0.0.0.0',
       proxy: localServer
-        ? { '/local-api': { target: `http://127.0.0.1:${localApiPort}`, changeOrigin: true, rewrite: path => path.replace(/^\/local-api/, '') } }
+        ? { '/local-api': { target: `http://127.0.0.1:${localApiPort}`, changeOrigin: true, ws: true, rewrite: path => path.replace(/^\/local-api/, '') } }
         : undefined,
       fs: {
         // Allow serving files from one level up to the project root

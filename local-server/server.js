@@ -5,6 +5,7 @@ import { basename, dirname, resolve } from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { SpaceStore, OperationError } from './state.js'
+import { WebSocketServer, WebSocket } from 'ws'
 
 const maxUploadBytes = 16 * 1024 * 1024
 const attachmentIdPattern = /^[A-Za-z0-9_-]{1,128}$/
@@ -155,12 +156,78 @@ export const createLocalServer = ({ databasePath = 'kinopio-local.sqlite', asset
       json(response, status, { error: error.message || 'internal server error' })
     }
   })
+  const rooms = new Map()
+  const websocketServer = new WebSocketServer({ noServer: true })
+  const send = (client, message) => {
+    if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(message))
+  }
+  const leave = client => {
+    const { spaceId, clientId, user } = client.room || {}
+    if (!spaceId) return
+    const room = rooms.get(spaceId)
+    room.delete(client)
+    if (!room.size) rooms.delete(spaceId)
+    client.room = null
+    for (const peer of room) {
+      send(peer, { message: { name: 'userLeftRoom' }, spaceId, clientId, user })
+    }
+  }
+  websocketServer.on('connection', client => {
+    client.on('message', bytes => {
+      let frame
+      try {
+        frame = JSON.parse(bytes.toString())
+      } catch {
+        client.close(1007, 'invalid JSON')
+        return
+      }
+      const { message, spaceId, clientId, user } = frame || {}
+      if (!message || typeof message !== 'object' || Array.isArray(message) || typeof spaceId !== 'string' || !spaceId || typeof clientId !== 'string' || !clientId || !user || typeof user.id !== 'string' || !user.id || typeof user.name !== 'string' || typeof user.color !== 'string') {
+        client.close(1008, 'invalid room message')
+        return
+      }
+      if (message.name === 'joinSpaceRoom') {
+        if (client.room?.spaceId === spaceId && client.room.clientId === clientId) return
+        leave(client)
+        const room = rooms.get(spaceId) || new Set()
+        rooms.set(spaceId, room)
+        for (const peer of room) {
+          send(client, { message: { name: 'userJoinedRoom' }, spaceId, clientId: peer.room.clientId, user: peer.room.user })
+          send(peer, { message: { name: 'userJoinedRoom' }, spaceId, clientId, user })
+        }
+        client.room = { spaceId, clientId, user }
+        room.add(client)
+        return
+      }
+      if (!client.room || client.room.spaceId !== spaceId || client.room.clientId !== clientId || client.room.user.id !== user.id) {
+        client.close(1008, 'not joined to room')
+        return
+      }
+      if (message.name === 'userLeftRoom') {
+        leave(client)
+        return
+      }
+      for (const peer of rooms.get(spaceId)) {
+        if (peer.room.clientId !== clientId) send(peer, { message, spaceId, clientId, user: client.room.user })
+      }
+    })
+    client.on('close', () => leave(client))
+  })
+  server.on('upgrade', (request, socket, head) => {
+    if (new URL(request.url, 'http://localhost').pathname !== '/ws') {
+      socket.destroy()
+      return
+    }
+    websocketServer.handleUpgrade(request, socket, head, client => websocketServer.emit('connection', client, request))
+  })
   return {
     server,
     store,
     close: () => {
       unsubscribe()
       for (const response of eventClients) response.end()
+      for (const client of websocketServer.clients) client.terminate()
+      websocketServer.close()
       store.close()
     }
   }

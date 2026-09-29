@@ -1,17 +1,33 @@
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
-import { mkdtemp, readdir } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { once } from 'node:events'
+import WebSocket from 'ws'
 import { SpaceStore } from './state.js'
 import { createLocalServer } from './server.js'
 
-const directory = await mkdtemp(join(tmpdir(), 'kinopio-local-server-'))
+const work = fileURLToPath(new URL('../work/', import.meta.url))
+await mkdir(work, { recursive: true })
+const directory = await mkdtemp(join(work, 'local-server-test-'))
 const app = createLocalServer({ databasePath: join(directory, 'spaces.sqlite') })
-after(() => app.close())
+after(async () => {
+  app.close()
+  await rm(directory, { recursive: true, force: true })
+})
 
 const space = () => ({
-  id: 'space-1', name: 'Original', userId: 'owner', cards: [], boxes: [], connections: [], lines: [], lists: [], tags: [], drawingStrokes: [],
+  id: 'space-1',
+  name: 'Original',
+  userId: 'owner',
+  cards: [],
+  boxes: [],
+  connections: [],
+  lines: [],
+  lists: [],
+  tags: [],
+  drawingStrokes: [],
   unknownFutureField: { keep: true }
 })
 let operationNumber = 0
@@ -258,4 +274,64 @@ test('HTTP exposes explicit create, list, detail, and operations routes', async 
   assert.deepEqual(await response.json(), { error: 'unsupported operation notSupported', operations: unknown, errors: [{ status: 400, message: 'unsupported operation notSupported' }] })
   assert.equal((await fetch(`${base}/spaces/space-http`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(document) })).status, 404)
   await new Promise(resolve => app.server.close(resolve))
+})
+
+test('WebSocket rooms announce joins and disconnects, relay only to peers, and isolate spaces', { timeout: 5000 }, async () => {
+  const relay = createLocalServer({ databasePath: join(directory, 'relay.sqlite') })
+  await new Promise(resolve => relay.server.listen(0, '127.0.0.1', resolve))
+  const endpoint = `ws://127.0.0.1:${relay.server.address().port}/ws`
+  const clients = []
+  const frames = []
+  const connect = async () => {
+    const client = new WebSocket(endpoint)
+    clients.push(client)
+    const messages = []
+    frames.push(messages)
+    client.on('message', bytes => messages.push(JSON.parse(bytes.toString())))
+    await once(client, 'open')
+    return client
+  }
+  const send = (client, clientId, spaceId, message) => client.send(JSON.stringify({
+    message, spaceId, clientId, user: { id: clientId, name: clientId, color: '#a0f' }
+  }))
+  const waitFor = async (messages, length) => {
+    for (let i = 0; messages.length < length && i < 100; i++) await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(messages.length, length)
+  }
+  try {
+    const a = await connect()
+    const b = await connect()
+    const c = await connect()
+    send(a, 'a', 'one', { name: 'joinSpaceRoom' })
+    send(b, 'b', 'one', { name: 'joinSpaceRoom' })
+    await waitFor(frames[0], 1)
+    await waitFor(frames[1], 1)
+    assert.deepEqual(frames[0][0], { message: { name: 'userJoinedRoom' }, spaceId: 'one', clientId: 'b', user: { id: 'b', name: 'b', color: '#a0f' } })
+    assert.equal(frames[1][0].clientId, 'a')
+    send(c, 'c', 'two', { name: 'joinSpaceRoom' })
+    send(a, 'a', 'one', { action: 'updateRemoteCardsSelected', updates: { userId: 'a', cardIds: ['card'] } })
+    await waitFor(frames[1], 2)
+    assert.equal(frames[1][1].message.action, 'updateRemoteCardsSelected')
+    assert.deepEqual(frames[1][1].message.updates.cardIds, ['card'])
+    assert.equal(frames[0].length, 1)
+    assert.equal(frames[2].length, 0)
+    b.close()
+    await once(b, 'close')
+    await waitFor(frames[0], 2)
+    assert.equal(frames[0][1].message.name, 'userLeftRoom')
+    assert.equal(frames[0][1].clientId, 'b')
+    send(c, 'c', 'one', { name: 'joinSpaceRoom' })
+    await waitFor(frames[0], 3)
+    await waitFor(frames[2], 1)
+    assert.equal(frames[0][2].clientId, 'c')
+    assert.equal(frames[2][0].clientId, 'a')
+    a.close()
+    await once(a, 'close')
+    await waitFor(frames[2], 2)
+    assert.equal(frames[2][1].message.name, 'userLeftRoom')
+  } finally {
+    for (const client of clients) client.terminate()
+    await new Promise(resolve => relay.server.close(resolve))
+    relay.close()
+  }
 })
