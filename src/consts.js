@@ -83,6 +83,7 @@ export default {
     return host
   },
   websocketHost () {
+    if (this.isLocalServer()) return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/local-api/ws`
     let host = 'wss://api.kinopio.club'
     if (this.isDevelopment()) {
       host = 'wss://kinopio.local:3000'
