@@ -984,6 +984,29 @@ export const useCardStore = defineStore('cards', {
         this.updateCardPositionsInList(list)
       })
     },
+    async reconcileCardDimensions (ids, { forceRender = false } = {}) {
+      if (!ids.length) { return }
+      const globalStore = useGlobalStore()
+      const zoom = globalStore.getSpaceCounterZoomDecimal
+      if (forceRender) globalStore.updateShouldExplicitlyRenderCardIds(ids)
+      await nextTick()
+      await document.fonts.ready
+      await nextTick()
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      const updates = []
+      ids.forEach(id => {
+        const card = this.getCard(id)
+        const element = utils.cardElement(card)
+        if (!element || element.dataset.shouldRender !== 'true') { return }
+        const rect = element.getBoundingClientRect()
+        const width = Math.round(rect.width * zoom)
+        const height = Math.round(rect.height * zoom)
+        if (utils.isMissingDimensions({ width, height })) { return }
+        if (width === card.width && height === card.height) { return }
+        updates.push({ id, width, height })
+      })
+      if (updates.length) await this.updateCards(updates)
+    },
     /** @param {string[]} ids */
     async updateCardsDimensions (ids) {
       const globalStore = useGlobalStore()
