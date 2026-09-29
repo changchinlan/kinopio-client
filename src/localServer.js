@@ -1,4 +1,8 @@
+import newSpace from '@/data/new.json'
+
 export const localServerEnabled = import.meta.env.VITE_LOCAL_SERVER === 'true'
+// Until the space loads from the server, the store holds the placeholder space from new.json; edits to it have nowhere to go.
+export const isPlaceholderSpaceId = id => id === newSpace.id
 export const localApi = (path) => `/local-api${path}`
 
 // Canvas mutations the local SQLite server owns. Account/preferences stay in IndexedDB.
