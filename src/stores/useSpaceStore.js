@@ -45,7 +45,14 @@ const setCookie = () => {
   const millenium = yearSeconds * 1000
   document.cookie = `kinopio=true; max-age=${millenium}; path=/;`
 }
-const cardGeometryFields = ['x', 'y', 'name', 'width', 'height', 'resizeWidth', 'maxWidth', 'listId', 'listPositionIndex', 'isComment', 'isLocked', 'isRemoved', 'url', 'urlIsHidden', 'urlPreviewIsVisible', 'urlPreviewUrl', 'urlPreviewErrorUrl', 'tilt']
+const cardGeometryFields = [
+  'x', 'y', 'name', 'width', 'height', 'resizeWidth', 'maxWidth', 'listId', 'listPositionIndex',
+  'isComment', 'isLocked', 'isRemoved', 'url', 'urlIsHidden', 'urlIsVisible', 'urlPreviewIsVisible',
+  'urlPreviewUrl', 'urlPreviewErrorUrl', 'urlPreviewTitle', 'urlPreviewDescription', 'urlPreviewImage',
+  'urlPreviewEmbedHtml', 'urlPreviewIframeUrl', 'shouldHideUrlPreviewInfo', 'shouldHideUrlPreviewImage',
+  'linkToCardId', 'linkToSpaceId', 'shouldShowOtherSpacePreviewImage', 'headerFontId', 'headerFontSize',
+  'counterIsVisible', 'tilt'
+]
 const boxGeometryFields = ['x', 'y', 'name', 'resizeWidth', 'resizeHeight', 'infoWidth', 'infoHeight', 'isLocked', 'isRemoved']
 const listGeometryFields = ['x', 'y', 'name', 'width', 'height', 'resizeWidth', 'isCollapsed', 'isRemoved']
 const changedGeometryItemIds = (remoteItems, localItems, fields) => {
