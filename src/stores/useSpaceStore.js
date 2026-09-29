@@ -45,6 +45,18 @@ const setCookie = () => {
   const millenium = yearSeconds * 1000
   document.cookie = `kinopio=true; max-age=${millenium}; path=/;`
 }
+const cardGeometryFields = ['x', 'y', 'name', 'width', 'height', 'resizeWidth', 'maxWidth', 'listId', 'listPositionIndex', 'isComment', 'isLocked', 'isRemoved', 'url', 'urlIsHidden', 'urlPreviewIsVisible', 'urlPreviewUrl', 'urlPreviewErrorUrl', 'tilt']
+const boxGeometryFields = ['x', 'y', 'name', 'resizeWidth', 'resizeHeight', 'infoWidth', 'infoHeight', 'isLocked', 'isRemoved']
+const listGeometryFields = ['x', 'y', 'name', 'width', 'height', 'resizeWidth', 'isCollapsed', 'isRemoved']
+const changedGeometryItemIds = (remoteItems, localItems, fields) => {
+  const localItemsById = new Map(localItems.map(item => [item.id, item]))
+  return remoteItems
+    .filter(item => {
+      const localItem = localItemsById.get(item.id)
+      return !localItem || fields.some(field => item[field] !== localItem[field])
+    })
+    .map(item => item.id)
+}
 
 export const useSpaceStore = defineStore('space', {
   state: () => (utils.clone(newSpace)),
@@ -553,6 +565,15 @@ export const useSpaceStore = defineStore('space', {
     async loadLocalSpace (space, { reconciliation = false } = {}) {
       const globalStore = useGlobalStore()
       const apiStore = useApiStore()
+      const cardStore = useCardStore()
+      const boxStore = useBoxStore()
+      const connectionStore = useConnectionStore()
+      const listStore = useListStore()
+      const previousGeometry = reconciliation && {
+        cards: utils.clone(cardStore.getAllCards),
+        boxes: utils.clone(boxStore.getAllBoxes),
+        lists: utils.clone(listStore.getAllLists)
+      }
       const targetId = space.id
       localLoadTargetId = targetId
       const generation = apiStore.localQueueGeneration()
@@ -585,6 +606,17 @@ export const useSpaceStore = defineStore('space', {
         replayLocalHistory: false,
         resetHistory: !reconciliation
       })
+      const cardIds = reconciliation
+        ? changedGeometryItemIds(cardStore.getAllCards, previousGeometry.cards, cardGeometryFields)
+        : cardStore.allIds
+      const geometryItemIds = reconciliation
+        ? uniq(cardIds.concat(
+            changedGeometryItemIds(boxStore.getAllBoxes, previousGeometry.boxes, boxGeometryFields),
+            changedGeometryItemIds(listStore.getAllLists, previousGeometry.lists, listGeometryFields)
+          ))
+        : uniq(cardStore.allIds.concat(boxStore.allIds, listStore.allIds))
+      await cardStore.reconcileCardDimensions(cardIds, { forceRender: reconciliation })
+      await connectionStore.updateConnectionPathsByItemIds(geometryItemIds)
       this.saveSpaceToCache()
       globalStore.triggerUpdateWindowTitle()
       globalStore.isLoadingSpace = false

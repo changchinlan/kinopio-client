@@ -368,40 +368,34 @@ export const useConnectionStore = defineStore('connections', {
     // path
 
     async updateConnectionPathsByItemIds (itemIds) {
-      try {
-        await nextTick()
-        const globalStore = useGlobalStore()
-        const userStore = useUserStore()
-        if (!itemIds.length) { return }
-        const connections = this.getConnectionsByItemIds(itemIds) || []
-        const updates = []
-        connections.forEach(connection => {
-          // perf: use dom lookup bc faster than getting state item
-          const startItem = utils.itemElementDimensions({ id: connection.startItemId })
-          const endItem = utils.itemElementDimensions({ id: connection.endItemId })
-          const path = this.getConnectionPathBetweenItems({
-            startItem,
-            startItemId: connection.startItemId,
-            endItem,
-            endItemId: connection.endItemId,
-            controlPoint: connection.controlPoint
-          })
-          if (!path) { return }
-          const update = {
-            id: connection.id,
-            path
-          }
-          updates.push(update)
+      await nextTick()
+      const globalStore = useGlobalStore()
+      const userStore = useUserStore()
+      if (!itemIds.length) { return }
+      const connections = this.getConnectionsByItemIds(itemIds) || []
+      const updates = []
+      connections.forEach(connection => {
+        // perf: use dom lookup bc faster than getting state item
+        const startItem = utils.itemElementDimensions({ id: connection.startItemId })
+        const endItem = utils.itemElementDimensions({ id: connection.endItemId })
+        const path = this.getConnectionPathBetweenItems({
+          startItem,
+          startItemId: connection.startItemId,
+          endItem,
+          endItemId: connection.endItemId,
+          controlPoint: connection.controlPoint
         })
+        if (!path || connection.path === path) { return }
+        updates.push({ id: connection.id, path })
+      })
+      if (updates.length) {
         if (userStore.getUserCanEditSpace) {
-          this.updateConnections(updates)
+          await this.updateConnections(updates)
         } else {
           this.updateConnectionsState(updates)
         }
-        globalStore.clearShouldExplicitlyRenderCardIds()
-      } catch (error) {
-        console.error('🚒 updateConnectionPathsByItemIds', error, itemIds)
       }
+      globalStore.clearShouldExplicitlyRenderCardIds()
     },
     updateConnectionPathByItemId (itemId) {
       this.updateConnectionPathsByItemIds([itemId])
