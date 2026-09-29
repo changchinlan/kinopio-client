@@ -11,6 +11,7 @@ import { useApiStore } from '@/stores/useApiStore'
 import { useGroupStore } from '@/stores/useGroupStore'
 import { useBroadcastStore } from '@/stores/useBroadcastStore'
 import { useHistoryStore } from '@/stores/useHistoryStore'
+import { useUploadStore } from '@/stores/useUploadStore'
 
 import { useGlobalStore } from '@/stores/useGlobalStore'
 
@@ -761,6 +762,8 @@ export const useSpaceStore = defineStore('space', {
         globalStore.updatePrevSpaceIdInSession(this.id)
         globalStore.updatePrevSpacePagePosition(this.id)
         globalStore.clearAllInteractingWithAndSelected()
+        // CardDetails deletes an empty card only when it closes; after the switch the old card is gone from the store.
+        this.removeEmptyCards()
         console.info('🚟 Change space', space)
         globalStore.isLoadingSpace = true
         globalStore.notifySpaceIsRemoved = false
@@ -1214,12 +1217,11 @@ export const useSpaceStore = defineStore('space', {
     },
     removeEmptyCards () {
       const cardStore = useCardStore()
-      const cards = cardStore.getAllCards
-      cards.forEach(card => {
-        if (!card.name) {
-          cardStore.removeCard(card)
-        }
-      })
+      const uploadStore = useUploadStore()
+      const ids = cardStore.getAllCards
+        .filter(card => !card.name && !uploadStore.getPendingUploadByItemId(card.id))
+        .map(card => card.id)
+      cardStore.removeCards(ids)
     },
 
     // users
