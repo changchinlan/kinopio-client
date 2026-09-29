@@ -598,15 +598,16 @@ export const useSpaceStore = defineStore('space', {
         return
       }
       localReconcileInFlight = true
-      let applied = false
       try {
         const targetId = localLoadTargetId || this.id
         localReloadPending = false
-        applied = await this.loadLocalSpace({ id: targetId }, { reconciliation: true })
-        if (!applied) localReloadPending = true
+        await this.loadLocalSpace({ id: targetId }, { reconciliation: true })
       } finally {
         localReconcileInFlight = false
-        if (applied && localReloadPending) {
+        // If the queue drained during this reconcile, the reconcile that drain triggered was swallowed by the
+        // in-flight branch above. Retry here, or a snapshot rejected for a generation change never lands.
+        // While the queue is still busy, the next drain triggers the retry.
+        if (localReloadPending && useApiStore().localQueueIsIdle()) {
           localReloadPending = false
           queueMicrotask(() => this.reconcileLocalSpace())
         }
