@@ -11,7 +11,7 @@ import { useBroadcastStore } from '@/stores/useBroadcastStore'
 import utils from '@/utils.js'
 import consts from '@/consts.js'
 import cache from '@/cache.js'
-import { localApi, localCanvasOperations, localServerEnabled, localUiOperations } from '@/localServer.js'
+import { isPlaceholderSpaceId, localApi, localCanvasOperations, localServerEnabled, localUiOperations } from '@/localServer.js'
 import { createLocalQueue } from '@/localQueue.js'
 import { postLocalOperations } from '@/localTransport.js'
 
@@ -312,6 +312,7 @@ export const useApiStore = defineStore('api', {
       const spaceStore = useSpaceStore()
       if (localServerEnabled) {
         if (localUiOperations.has(name)) return
+        if (isPlaceholderSpaceId(spaceId || spaceStore.id)) return
         if (!localCanvasOperations.has(name)) {
           console.warn('local server will reject unsupported operation', name)
         }
