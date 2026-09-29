@@ -698,7 +698,7 @@ export const useCardStore = defineStore('cards', {
         if (!userStore.getUserCanEditCard(card)) continue
         this.removeCardFromState(card)
         broadcastStore.update({ updates: card, store: 'cardStore', action: 'removeCardFromState' })
-        await apiStore.addToQueue({ name: 'deleteCard', body: card })
+        await apiStore.addToQueue({ name: 'deleteCard', body: card, spaceId: card.spaceId })
       }
     },
     /** @param {Card} card */
