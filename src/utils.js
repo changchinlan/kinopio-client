@@ -3,6 +3,7 @@ import cache from '@/cache.js'
 import consts from '@/consts.js'
 import codeLanguages from '@/data/codeLanguages.json'
 import helloSpace from '@/data/hello.json'
+import { localServerEnabled } from '@/localServer.js'
 
 import { nanoid } from 'nanoid'
 import uniqBy from 'lodash-es/uniqBy'
@@ -2091,7 +2092,8 @@ export default {
     if (!this.arrayHasItems(space.connections)) { return space }
     space.connections = space.connections || []
     space.cards = space.cards || []
-    space.cards = space.cards.filter(card => card?.name) || []
+    // The local server reconciles after every commit, and a new card typed through an IME is still unnamed then.
+    if (!localServerEnabled) { space.cards = space.cards.filter(card => card?.name) }
     space.cards = space.cards.map(card => {
       if (card.resizeWidth) {
         card.resizeWidth = Math.round(card.resizeWidth)
