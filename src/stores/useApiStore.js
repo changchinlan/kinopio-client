@@ -372,7 +372,7 @@ export const useApiStore = defineStore('api', {
 
     async getStatus () {
       try {
-        const response = await fetchWithTimeout(`${consts.apiHost()}/`)
+        const response = await fetchWithTimeout(localServerEnabled ? localApi('/health') : `${consts.apiHost()}/`)
         return normalizeResponse(response)
       } catch (error) {
         console.info('🚒 getStatus', error)
@@ -835,6 +835,7 @@ export const useApiStore = defineStore('api', {
       }
     },
     async getLiveSpaces () {
+      if (localServerEnabled) return []
       const globalStore = useGlobalStore()
       const isOnline = globalStore.isOnline
       if (!shouldRequest({ shouldRequestRemote: true, isOnline })) { return }
