@@ -509,6 +509,8 @@ const name = computed({
     return card.value.name || ''
   },
   set (newName) {
+    // closeCard blurs the textarea after the card is already gone, which commits any IME composition
+    if (!visible.value) { return }
     updateNameCardUserMentions(newName)
     updateNameCardDateMentions(newName)
     if (globalStore.shouldPreventNextEnterKey) {
