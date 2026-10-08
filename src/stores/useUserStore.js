@@ -441,6 +441,8 @@ export const useUserStore = defineStore('user', {
         this.createNewUser()
         themeStore.restoreTheme()
       }
+      // The local server has no billing, so its user gets every upgraded-only capability.
+      if (localServerEnabled) { this.isUpgraded = true }
       globalStore.triggerUserIsLoaded()
       this.checkIfShouldJoinGroup()
       this.updateUserDefaultTimezone()
